@@ -2,8 +2,21 @@
 
 import { supabase } from "@/lib/supabaseClient";
 import React, { useState, useEffect, Suspense, useMemo } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import Image from "next/image";
+
+const Dashboard3DGlobe = dynamic(
+  () => import("@/components/3d/Dashboard3DGlobe").then((mod) => mod.Dashboard3DGlobe),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-[240px] bg-slate-900/90 rounded-2xl flex items-center justify-center text-xs text-emerald-400 font-mono">
+        Loading 3D Telemetry Sphere...
+      </div>
+    ),
+  }
+);
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Compass,
@@ -760,6 +773,35 @@ function DashboardContent() {
               </div>
               <ChevronRight className="w-4 h-4 text-[#CBD5E1] shrink-0 mt-1" />
             </div>
+          </div>
+
+          {/* ============================================================ */}
+          {/* 4.5. 3D LIVE EXPERIENCE SPHERE & TELEMETRY                    */}
+          {/* ============================================================ */}
+          <div className="bg-white p-5 rounded-2xl border border-[#E2E8F0] shadow-2xs space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Globe className="w-4 h-4 text-[#059669]" />
+                <h3 className="text-[15px] font-bold text-[#0F172A] tracking-tight">
+                  Interactive 3D Experience &amp; Reach Radar
+                </h3>
+                <span className="w-2 h-2 rounded-full bg-[#059669] animate-pulse" />
+              </div>
+              <span className="text-[11px] font-mono text-[#059669] bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                LIVE TELEMETRY
+              </span>
+            </div>
+            <Dashboard3DGlobe
+              experiences={displayExperiences.map((e) => ({
+                id: e.id,
+                name: e.title,
+                city: e.city || "Mumbai",
+                price: e.price,
+                rating: e.rating,
+              }))}
+              totalGuests={totalBookingsCount}
+              activeCount={activeListingsCount}
+            />
           </div>
 
           {/* ============================================================ */}

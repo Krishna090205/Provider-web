@@ -1,8 +1,21 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import Image from "next/image";
+
+const BoostRadar3D = dynamic(
+  () => import("@/components/3d/BoostRadar3D").then((mod) => mod.BoostRadar3D),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-[320px] bg-[#031512] rounded-3xl flex items-center justify-center text-xs text-emerald-400 font-mono">
+        Initializing 3D Reach Radar...
+      </div>
+    ),
+  }
+);
 import { useRouter } from "next/navigation";
 import {
   X,
@@ -232,9 +245,9 @@ export default function BoostYourListingPage() {
   };
 
   const currentPkg = useMemo(() => {
-    if (packageType === "spark") return { name: "Weekend Spark (3 Days)", amount: 499, days: 3 };
-    if (packageType === "push") return { name: "Weekly Push (7 Days)", amount: 999, days: 7 };
-    return { name: "Festival Surge (14 Days)", amount: 1999, days: 14 };
+    if (packageType === "spark") return { name: "Weekend Spark (3 Days)", amount: 499, days: 3, reachNum: 1400 };
+    if (packageType === "push") return { name: "Weekly Push (7 Days)", amount: 999, days: 7, reachNum: 4800 };
+    return { name: "Festival Surge (14 Days)", amount: 1999, days: 14, reachNum: 12500 };
   }, [packageType]);
 
   // Pricing & Offer Calculations
@@ -1087,6 +1100,13 @@ export default function BoostYourListingPage() {
 
             {/* Right Column (4 cols): Preview in Traveler App & Checkout Summary */}
             <div className="lg:col-span-4 space-y-5">
+              {/* Interactive 3D Traveler Reach Radar */}
+              <BoostRadar3D
+                packageType={packageType}
+                listingName={selectedListing.name}
+                estimatedReach={currentPkg.reachNum}
+              />
+
               {/* Preview in Traveler App Card */}
               <div className="bg-white/95 p-5 rounded-3xl border border-slate-200/90 shadow-2xs space-y-3.5">
                 <div className="flex items-center justify-between pb-1">

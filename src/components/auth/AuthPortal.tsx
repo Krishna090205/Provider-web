@@ -70,7 +70,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = "signup" }
       return;
     }
 
-    if (modeParam === "login") {
+    if (modeParam === "login" || (initialMode === "login" && !modeParam)) {
       setMode("login");
       if (typeof window !== "undefined") {
         const savedEmail = localStorage.getItem("locallens_last_provider_email");
@@ -89,7 +89,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = "signup" }
         window.location.href = "/dashboard";
       }
     });
-  }, [searchParams]);
+  }, [searchParams, initialMode]);
 
   // Switch modes smoothly
   const switchTo = (targetMode: "login" | "signup") => {
@@ -240,17 +240,16 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = "signup" }
     setSuccessMsg("Connecting to Google OAuth...");
 
     try {
-      const redirectUrl = `${window.location.origin}/auth/callback`;
+      const redirectUrl =
+        typeof window !== "undefined" && window.location.origin
+          ? `${window.location.origin}/auth/callback`
+          : "http://localhost:3000/auth/callback";
+
       console.log("[Google OAuth] Initiating signInWithOAuth with redirectTo:", redirectUrl);
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: redirectUrl,
-          scopes: "email profile openid",
-          queryParams: {
-            access_type: "offline",
-            prompt: "select_account",
-          },
+          redirectTo: `${window.location.origin}/auth/callback`,
         },
       });
 

@@ -4,7 +4,7 @@ import { AuthPortal } from "@/components/auth/AuthPortal";
 export default function LoginPage() {
   return (
     <Suspense fallback={<div className="min-h-screen bg-slate-900 flex items-center justify-center text-white text-xs font-semibold">Loading LocalLens Portal...</div>}>
-      <AuthPortal initialMode="signup" />
+      <AuthPortal initialMode="login" />
     </Suspense>
   );
 }

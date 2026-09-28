@@ -56,6 +56,17 @@ const GoogleMapPinDropper = dynamic(
   }
 );
 
+const ExperienceMap3DFeedback = dynamic(
+  () =>
+    import("@/components/3d/ExperienceMap3DFeedback").then(
+      (mod) => mod.ExperienceMap3DFeedback
+    ),
+  {
+    ssr: false,
+    loading: () => null,
+  }
+);
+
 function NewExperienceWizardPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -945,6 +956,15 @@ function NewExperienceWizardPageContent() {
                     venueName={meetingPoint}
                   />
                 </div>
+
+                {/* 3D Pin & Coordinate Telemetry Widget */}
+                <ExperienceMap3DFeedback
+                  lat={lat}
+                  lng={lng}
+                  city={city}
+                  district={district}
+                  venueName={meetingPoint}
+                />
 
                 {/* Collapsible Advanced Coordinates */}
                 <div className="pt-1">

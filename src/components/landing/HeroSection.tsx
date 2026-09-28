@@ -1,14 +1,31 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
-import { Star } from "lucide-react";
+import dynamic from "next/dynamic";
+import { Star, Globe2, Compass } from "lucide-react";
 import { ProviderBadge } from "./ProviderBadge";
 import { HeroCTA } from "./HeroCTA";
 import { ExperienceShowcase } from "./ExperienceShowcase";
 
+const Hero3DCanvas = dynamic(
+  () => import("@/components/3d/Hero3DCanvas").then((mod) => mod.Hero3DCanvas),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-[410px] flex items-center justify-center bg-white/40 backdrop-blur-md rounded-3xl border border-white/60 shadow-lg">
+        <div className="flex items-center gap-2.5 text-xs font-bold text-[#059669]">
+          <div className="w-3.5 h-3.5 border-2 border-[#059669] border-t-transparent rounded-full animate-spin" />
+          <span>Preparing 3D Travel Sphere...</span>
+        </div>
+      </div>
+    ),
+  }
+);
+
 export const HeroSection: React.FC = () => {
   const [mounted, setMounted] = useState(false);
+  const [activeView, setActiveView] = useState<"3d" | "card">("3d");
 
   useEffect(() => {
     // Trigger smooth entrance slide-in on load
@@ -74,15 +91,52 @@ export const HeroSection: React.FC = () => {
             </div>
           </div>
 
-          {/* Right Column: Experience Showcase with 3D Pin, dashed trail & earnings */}
+          {/* Right Column: 3D Travel Sphere or Experience Showcase */}
           <div
-            className={`lg:col-span-6 xl:col-span-5 relative flex justify-center lg:justify-end mt-4 lg:mt-0 transform transition-all duration-700 ease-out delay-150 ${
+            className={`lg:col-span-6 xl:col-span-5 relative flex flex-col items-center lg:items-end justify-center mt-4 lg:mt-0 transform transition-all duration-700 ease-out delay-150 ${
               mounted
                 ? "translate-x-0 opacity-100"
                 : "translate-x-12 opacity-0"
             }`}
           >
-            <ExperienceShowcase />
+            {/* View Mode Switcher Pill */}
+            <div className="mb-3 flex items-center gap-1 bg-white/90 backdrop-blur-md p-1 rounded-full border border-slate-200/80 shadow-xs z-30">
+              <button
+                type="button"
+                onClick={() => setActiveView("3d")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                  activeView === "3d"
+                    ? "bg-[#059669] text-white shadow-xs"
+                    : "text-slate-600 hover:text-[#0F172A]"
+                }`}
+              >
+                <Globe2 className="w-3.5 h-3.5" />
+                <span>3D Travel World</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveView("card")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                  activeView === "card"
+                    ? "bg-[#059669] text-white shadow-xs"
+                    : "text-slate-600 hover:text-[#0F172A]"
+                }`}
+              >
+                <Compass className="w-3.5 h-3.5" />
+                <span>Featured Tour</span>
+              </button>
+            </div>
+
+            {/* Active Visual Component */}
+            <div className="w-full flex justify-center lg:justify-end">
+              {activeView === "3d" ? (
+                <div className="w-full max-w-[480px] sm:max-w-[530px]">
+                  <Hero3DCanvas />
+                </div>
+              ) : (
+                <ExperienceShowcase />
+              )}
+            </div>
           </div>
         </div>
       </div>
