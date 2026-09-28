@@ -3,6 +3,7 @@
 import React from "react";
 import { Navbar } from "@/components/landing/Navbar";
 import { HeroSection } from "@/components/landing/HeroSection";
+import { HowItWorks3DSection } from "@/components/landing/HowItWorks3DSection";
 
 export default function LandingPage() {
   React.useEffect(() => {
@@ -27,6 +28,7 @@ export default function LandingPage() {
       {/* 2. Hero Section with Background, Floating Card, and Bottom Trust Bar */}
       <main className="flex-1 flex flex-col justify-between">
         <HeroSection />
+        <HowItWorks3DSection />
       </main>
     </div>
   );

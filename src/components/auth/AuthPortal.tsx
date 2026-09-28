@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Compass,
@@ -29,6 +30,11 @@ import { supabase } from "@/lib/supabaseClient";
 import { saveProviderProfile } from "@/lib/authSession";
 import { useI18n } from "@/lib/i18n";
 import { LanguageSelector } from "@/components/settings/LanguageSelector";
+
+const Login3DBackground = dynamic(
+  () => import("@/components/3d/Login3DBackground").then((mod) => mod.Login3DBackground),
+  { ssr: false }
+);
 
 interface AuthPortalProps {
   initialMode?: "login" | "signup";
@@ -300,7 +306,8 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = "signup" }
           priority
           unoptimized
         />
-        <div className="absolute inset-0 bg-white/5" />
+        <div className="absolute inset-0 bg-white/10" />
+        <Login3DBackground className="opacity-70" />
       </div>
 
       {/* 2. Main Two-Column Container */}

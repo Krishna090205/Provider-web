@@ -4,7 +4,7 @@ import React, { useRef, useMemo, useState, useEffect } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Float, Html } from "@react-three/drei";
 import * as THREE from "three";
-import { Radar, Sparkles, Navigation, Users, Zap, ShieldCheck } from "lucide-react";
+import { Sparkles, Zap, Navigation } from "lucide-react";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 
 interface BoostRadar3DProps {
@@ -13,13 +13,22 @@ interface BoostRadar3DProps {
   estimatedReach?: number;
   radiusKm?: number;
   activeCampaignsCount?: number;
+  isLaunching?: boolean;
+  onLaunchComplete?: () => void;
 }
 
-function RadarGrid({ packageType = "push" }: { packageType: "spark" | "push" | "surge" }) {
-  const sweepRef = useRef<THREE.Mesh>(null);
+function RadarGrid({
+  packageType = "push",
+  isLaunching = false,
+}: {
+  packageType: "spark" | "push" | "surge";
+  isLaunching?: boolean;
+}) {
+  const sweepRef = useRef<THREE.Group>(null);
   const ring1Ref = useRef<THREE.Mesh>(null);
   const ring2Ref = useRef<THREE.Mesh>(null);
   const ring3Ref = useRef<THREE.Mesh>(null);
+  const launchBlastRef = useRef<THREE.Mesh>(null);
 
   // Scaled radius depending on package
   const maxRadius = packageType === "surge" ? 4.2 : packageType === "push" ? 3.4 : 2.5;
@@ -39,28 +48,75 @@ function RadarGrid({ packageType = "push" }: { packageType: "spark" | "push" | "
     return dots;
   }, [packageType, maxRadius]);
 
+  // Construct crosshair lines using Three.js Line primitives
+  const { lineX, lineZ } = useMemo(() => {
+    const geoX = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-maxRadius, 0, 0),
+      new THREE.Vector3(maxRadius, 0, 0),
+    ]);
+    const geoZ = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, -maxRadius),
+      new THREE.Vector3(0, 0, maxRadius),
+    ]);
+    const mat = new THREE.LineBasicMaterial({ color: "#059669", transparent: true, opacity: 0.35 });
+    return {
+      lineX: new THREE.Line(geoX, mat),
+      lineZ: new THREE.Line(geoZ, mat),
+    };
+  }, [maxRadius]);
+
+  // Construct radiating boost route lines during launch
+  const boostRouteLines = useMemo(() => {
+    const lines: THREE.Line[] = [];
+    const sampleDots = travelerDots.slice(0, 8);
+    for (const dot of sampleDots) {
+      const p1 = new THREE.Vector3(0, 0.2, 0);
+      const p2 = new THREE.Vector3(...dot.pos);
+      const mid = p1.clone().add(p2).multiplyScalar(0.5);
+      mid.y += 0.4;
+      const curve = new THREE.CatmullRomCurve3([p1, mid, p2]);
+      const pts = curve.getPoints(24);
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      const mat = new THREE.LineBasicMaterial({
+        color: "#FDE047",
+        transparent: true,
+        opacity: isLaunching ? 0.8 : 0.2,
+      });
+      lines.push(new THREE.Line(geo, mat));
+    }
+    return lines;
+  }, [travelerDots, isLaunching]);
+
   useFrame((state, delta) => {
     // 360 rotating radar sweep
     if (sweepRef.current) {
-      sweepRef.current.rotation.y += delta * 1.6;
+      sweepRef.current.rotation.y += delta * (isLaunching ? 3.5 : 1.6);
     }
 
     // Concentric expanding sonar pulse rings
-    const t = state.clock.elapsedTime;
+    const t = state.clock.elapsedTime * (isLaunching ? 1.4 : 0.8);
     if (ring1Ref.current) {
-      const s1 = ((t * 0.8) % 1) * maxRadius;
+      const s1 = (t % 1) * maxRadius;
       ring1Ref.current.scale.set(s1, s1, 1);
       (ring1Ref.current.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.7 * (1 - s1 / maxRadius));
     }
     if (ring2Ref.current) {
-      const s2 = (((t * 0.8) + 0.33) % 1) * maxRadius;
+      const s2 = ((t + 0.33) % 1) * maxRadius;
       ring2Ref.current.scale.set(s2, s2, 1);
       (ring2Ref.current.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.7 * (1 - s2 / maxRadius));
     }
     if (ring3Ref.current) {
-      const s3 = (((t * 0.8) + 0.66) % 1) * maxRadius;
+      const s3 = ((t + 0.66) % 1) * maxRadius;
       ring3Ref.current.scale.set(s3, s3, 1);
       (ring3Ref.current.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.7 * (1 - s3 / maxRadius));
+    }
+
+    // Launch blast wave
+    if (launchBlastRef.current && isLaunching) {
+      const blastTime = (state.clock.elapsedTime * 2) % 1;
+      const bScale = blastTime * maxRadius * 1.2;
+      launchBlastRef.current.scale.set(bScale, bScale, 1);
+      (launchBlastRef.current.material as THREE.MeshBasicMaterial).opacity = (1 - blastTime) * 0.9;
     }
   });
 
@@ -72,7 +128,7 @@ function RadarGrid({ packageType = "push" }: { packageType: "spark" | "push" | "
         <meshBasicMaterial
           color="#04201A"
           transparent
-          opacity={0.8}
+          opacity={0.85}
         />
       </mesh>
 
@@ -89,25 +145,9 @@ function RadarGrid({ packageType = "push" }: { packageType: "spark" | "push" | "
         </mesh>
       ))}
 
-      {/* Axis crosshair lines */}
-      <line>
-        <bufferGeometry>
-          <bufferAttribute
-            attach="attributes-position"
-            args={[new Float32Array([-maxRadius, 0, 0, maxRadius, 0, 0]), 3]}
-          />
-        </bufferGeometry>
-        <lineBasicMaterial color="#059669" transparent opacity={0.3} />
-      </line>
-      <line>
-        <bufferGeometry>
-          <bufferAttribute
-            attach="attributes-position"
-            args={[new Float32Array([0, 0, -maxRadius, 0, 0, maxRadius]), 3]}
-          />
-        </bufferGeometry>
-        <lineBasicMaterial color="#059669" transparent opacity={0.3} />
-      </line>
+      {/* Crosshair lines */}
+      <primitive object={lineX} />
+      <primitive object={lineZ} />
 
       {/* Expanding Sonar Waves */}
       <mesh ref={ring1Ref} rotation={[-Math.PI / 2, 0, 0]}>
@@ -123,14 +163,27 @@ function RadarGrid({ packageType = "push" }: { packageType: "spark" | "push" | "
         <meshBasicMaterial color="#34D399" transparent opacity={0.5} side={THREE.DoubleSide} />
       </mesh>
 
+      {/* Launch Blast Ring */}
+      {isLaunching && (
+        <mesh ref={launchBlastRef} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[0.92, 1.0, 48]} />
+          <meshBasicMaterial color="#FBBF24" transparent opacity={0.8} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+
+      {/* Radiating Boost Routes during Launch */}
+      {boostRouteLines.map((line, idx) => (
+        <primitive key={idx} object={line} />
+      ))}
+
       {/* Rotating Radar Sweep Cone/Plane */}
       <group ref={sweepRef}>
         <mesh rotation={[-Math.PI / 2, 0, 0]}>
           <ringGeometry args={[0.1, maxRadius, 32, 1, 0, Math.PI / 3]} />
           <meshBasicMaterial
-            color="#10B981"
+            color={isLaunching ? "#F59E0B" : "#10B981"}
             transparent
-            opacity={0.25}
+            opacity={isLaunching ? 0.45 : 0.25}
             side={THREE.DoubleSide}
           />
         </mesh>
@@ -140,30 +193,45 @@ function RadarGrid({ packageType = "push" }: { packageType: "spark" | "push" | "
       <group position={[0, 0.1, 0]}>
         <mesh>
           <cylinderGeometry args={[0.08, 0.18, 0.35, 16]} />
-          <meshStandardMaterial color="#059669" emissive="#10B981" emissiveIntensity={0.6} />
+          <meshStandardMaterial
+            color={isLaunching ? "#F59E0B" : "#059669"}
+            emissive={isLaunching ? "#FBBF24" : "#10B981"}
+            emissiveIntensity={isLaunching ? 1.2 : 0.6}
+          />
         </mesh>
         <mesh position={[0, 0.25, 0]}>
-          <sphereGeometry args={[0.12, 16, 16]} />
-          <meshStandardMaterial color="#F59E0B" emissive="#F59E0B" emissiveIntensity={0.8} />
+          <sphereGeometry args={[0.13, 16, 16]} />
+          <meshStandardMaterial
+            color={isLaunching ? "#FFFFFF" : "#F59E0B"}
+            emissive={isLaunching ? "#FDE047" : "#F59E0B"}
+            emissiveIntensity={isLaunching ? 1.5 : 0.8}
+          />
         </mesh>
       </group>
 
       {/* Surrounding Traveler Ping Nodes */}
       {travelerDots.map((t) => (
-        <TravelerNode key={t.id} dot={t} />
+        <TravelerNode key={t.id} dot={t} isBoostActive={isLaunching} />
       ))}
     </group>
   );
 }
 
-function TravelerNode({ dot }: { dot: { pos: [number, number, number]; id: number; speed: number } }) {
+function TravelerNode({
+  dot,
+  isBoostActive = false,
+}: {
+  dot: { pos: [number, number, number]; id: number; speed: number };
+  isBoostActive?: boolean;
+}) {
   const meshRef = useRef<THREE.Mesh>(null);
   const [hovered, setHovered] = useState(false);
 
   useFrame((state) => {
     if (meshRef.current) {
       const offset = dot.id * 0.4;
-      const s = 1 + Math.sin(state.clock.elapsedTime * 3 + offset) * 0.2;
+      const rate = isBoostActive ? 6 : 3;
+      const s = 1 + Math.sin(state.clock.elapsedTime * rate + offset) * 0.25;
       meshRef.current.scale.set(s, s, s);
     }
   });
@@ -175,11 +243,11 @@ function TravelerNode({ dot }: { dot: { pos: [number, number, number]; id: numbe
         onPointerOver={() => setHovered(true)}
         onPointerOut={() => setHovered(false)}
       >
-        <sphereGeometry args={[0.05, 12, 12]} />
+        <sphereGeometry args={[isBoostActive ? 0.065 : 0.05, 12, 12]} />
         <meshStandardMaterial
-          color={hovered ? "#FBBF24" : "#6EE7B7"}
-          emissive={hovered ? "#F59E0B" : "#10B981"}
-          emissiveIntensity={hovered ? 0.9 : 0.5}
+          color={isBoostActive ? "#FBBF24" : hovered ? "#FBBF24" : "#6EE7B7"}
+          emissive={isBoostActive ? "#F59E0B" : hovered ? "#F59E0B" : "#10B981"}
+          emissiveIntensity={isBoostActive ? 1.2 : hovered ? 0.9 : 0.5}
         />
       </mesh>
 
@@ -229,6 +297,7 @@ function BoostRadar2DFallback({
 
 export function BoostRadar3D(props: BoostRadar3DProps) {
   const [webglSupported, setWebglSupported] = useState<boolean | null>(null);
+  const [localSimulating, setLocalSimulating] = useState(false);
 
   useEffect(() => {
     try {
@@ -242,6 +311,16 @@ export function BoostRadar3D(props: BoostRadar3DProps) {
       setWebglSupported(false);
     }
   }, []);
+
+  const isLaunching = props.isLaunching || localSimulating;
+
+  const handleSimulatePulse = () => {
+    setLocalSimulating(true);
+    setTimeout(() => {
+      setLocalSimulating(false);
+      props.onLaunchComplete?.();
+    }, 2000);
+  };
 
   if (webglSupported === false) {
     return <BoostRadar2DFallback {...props} />;
@@ -269,19 +348,27 @@ export function BoostRadar3D(props: BoostRadar3DProps) {
           <pointLight position={[0, 1.5, 0]} intensity={1.5} color="#34D399" />
 
           <Float speed={1.2} rotationIntensity={0.1} floatIntensity={0.2}>
-            <RadarGrid packageType={props.packageType || "push"} />
+            <RadarGrid
+              packageType={props.packageType || "push"}
+              isLaunching={isLaunching}
+            />
           </Float>
         </Canvas>
 
         {/* Top-Left Live Radar Header */}
         <div className="absolute top-4 left-4 z-10 bg-slate-900/90 backdrop-blur-md px-3.5 py-1.5 rounded-2xl border border-emerald-500/40 text-white flex items-center gap-2.5 shadow-lg pointer-events-none">
-          <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+          <div className={`w-2.5 h-2.5 rounded-full ${isLaunching ? "bg-amber-400 animate-ping" : "bg-emerald-400 animate-ping"}`} />
           <div>
-            <div className="text-[11px] font-black text-emerald-400 font-mono tracking-wider uppercase">
-              Live Traveler Reach Radar
+            <div className="text-[11px] font-black text-emerald-400 font-mono tracking-wider uppercase flex items-center gap-1.5">
+              <span>Live Traveler Reach Radar</span>
+              {isLaunching && (
+                <span className="text-[9px] bg-amber-500/30 text-amber-300 px-1.5 py-0.2 rounded font-sans font-bold">
+                  PULSING
+                </span>
+              )}
             </div>
             <div className="text-[9.5px] text-slate-300 font-medium">
-              360° Omnidirectional Scan Active
+              {isLaunching ? "Illuminating Target Travelers..." : "360° Omnidirectional Scan Active"}
             </div>
           </div>
         </div>
@@ -296,6 +383,19 @@ export function BoostRadar3D(props: BoostRadar3DProps) {
           </div>
         </div>
 
+        {/* Live Simulation Pulse Trigger Button */}
+        <div className="absolute bottom-11 right-4 z-20">
+          <button
+            type="button"
+            onClick={handleSimulatePulse}
+            disabled={isLaunching}
+            className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-400/30 flex items-center gap-1 transition-all shadow-xs cursor-pointer backdrop-blur-xs disabled:opacity-50"
+          >
+            <Zap className="w-3 h-3 text-amber-400" />
+            <span>{isLaunching ? "Pulse Radiating..." : "Test Radar Pulse"}</span>
+          </button>
+        </div>
+
         {/* Bottom Legend */}
         <div className="absolute bottom-3 left-4 right-4 z-10 flex items-center justify-between text-[10px] text-slate-400 bg-slate-950/80 px-3 py-1.5 rounded-xl border border-white/10 backdrop-blur-sm pointer-events-none">
           <div className="flex items-center gap-2">
@@ -306,11 +406,12 @@ export function BoostRadar3D(props: BoostRadar3DProps) {
             <span>Green Nodes: Active Nearby Travelers</span>
           </div>
           <span className="font-mono text-emerald-400 font-bold hidden sm:inline">
-            Status: OPTIMIZED
+            Status: {isLaunching ? "SURGE ACTIVE" : "OPTIMIZED"}
           </span>
         </div>
       </div>
     </ErrorBoundary>
   );
 }
+
 export default BoostRadar3D;

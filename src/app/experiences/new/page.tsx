@@ -39,6 +39,8 @@ import { ExperienceListing } from "@/types/experience";
 import { AIContentValidatorWidget } from "@/components/ai/AIContentValidatorWidget";
 import { LanguageSelector } from "@/components/settings/LanguageSelector";
 import { useAuth } from "@/hooks/useAuth";
+import { PageTransition } from "@/components/motion/PageTransition";
+import { MagneticButton } from "@/components/motion/MagneticButton";
 
 // Dynamic map pin dropper
 const GoogleMapPinDropper = dynamic(
@@ -593,7 +595,7 @@ function NewExperienceWizardPageContent() {
         {/* STEP 1: DETAILS                                                */}
         {/* ============================================================== */}
         {currentStep === 1 && (
-          <div className="space-y-6 animate-in fade-in duration-300">
+          <PageTransition key={1} className="space-y-6">
             <div>
               <span className="text-[11px] font-bold text-[#00875A] uppercase tracking-wider">Step 1 of 3</span>
               <h1 className="text-2xl font-black text-[#0F172A] tracking-tight mt-0.5">
@@ -830,12 +832,13 @@ function NewExperienceWizardPageContent() {
                 </button>
               </div>
             </div>
-          </div>
-        )}﻿        {/* ========================================================================= */}
+          </PageTransition>
+        )}
+        {/* ========================================================================= */}
         {/* STEP 2: LOCATION & SCHEDULE                                              */}
         {/* ========================================================================= */}
         {currentStep === 2 && (
-          <div className="space-y-8 animate-fadeIn">
+          <PageTransition key={2} className="space-y-8">
             <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-6">
               <div>
                 <h2 className="text-lg font-black text-[#0F172A] flex items-center gap-2">
@@ -1173,13 +1176,13 @@ function NewExperienceWizardPageContent() {
                 </div>
               </div>
             </div>
-          </div>
+          </PageTransition>
         )}
-﻿        {/* ========================================================================= */}
+        {/* ========================================================================= */}
         {/* STEP 3: PRICING & PUBLISH                                                 */}
         {/* ========================================================================= */}
         {currentStep === 3 && (
-          <div className="space-y-8 animate-fadeIn">
+          <PageTransition key={3} className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               {/* Form Inputs (7 Cols) */}
               <div className="lg:col-span-7 bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs space-y-6">
@@ -1456,7 +1459,7 @@ function NewExperienceWizardPageContent() {
                 </div>
               </div>
             </div>
-          </div>
+          </PageTransition>
         )}
 
         {/* Global Toast Notification */}

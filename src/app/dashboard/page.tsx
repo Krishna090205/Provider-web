@@ -17,6 +17,32 @@ const Dashboard3DGlobe = dynamic(
     ),
   }
 );
+
+const BookingTimeline3D = dynamic(
+  () => import("@/components/3d/BookingTimeline3D").then((mod) => mod.BookingTimeline3D),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-[240px] bg-slate-900/90 rounded-2xl flex items-center justify-center text-xs text-emerald-400 font-mono">
+        Loading 3D Booking Schedule...
+      </div>
+    ),
+  }
+);
+
+const EarningsBars3D = dynamic(
+  () => import("@/components/3d/EarningsBars3D").then((mod) => mod.EarningsBars3D),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-[240px] bg-slate-900/90 rounded-2xl flex items-center justify-center text-xs text-emerald-400 font-mono">
+        Loading 3D Financial Activity...
+      </div>
+    ),
+  }
+);
+
+import { SmoothNumber } from "@/components/motion/SmoothNumber";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Compass,
@@ -151,6 +177,9 @@ function DashboardContent() {
       }
     }
   }, []);
+
+  // 3D Telemetry View Mode
+  const [dashboard3DView, setDashboard3DView] = useState<"reach" | "metrics" | "timeline">("reach");
 
   // Navigation Items matching the sidebar in the visual reference
   const navMenuItems = [
@@ -692,7 +721,7 @@ function DashboardContent() {
                 </div>
                 <div className="space-y-0.5">
                   <div className="text-[26px] font-extrabold text-[#0F172A] tracking-tight leading-none">
-                    ₹{totalEarningsNum.toLocaleString()}
+                    <SmoothNumber value={totalEarningsNum} prefix="₹" />
                   </div>
                   <div className="text-[13px] font-semibold text-[#475569] pt-1">
                     Total Earnings
@@ -713,7 +742,7 @@ function DashboardContent() {
                 </div>
                 <div className="space-y-0.5">
                   <div className="text-[26px] font-extrabold text-[#0F172A] tracking-tight leading-none">
-                    {activeListingsCount}
+                    <SmoothNumber value={activeListingsCount} />
                   </div>
                   <div className="text-[13px] font-semibold text-[#475569] pt-1">
                     Active Listings
@@ -740,7 +769,7 @@ function DashboardContent() {
                 </div>
                 <div className="space-y-0.5">
                   <div className="text-[26px] font-extrabold text-[#0F172A] tracking-tight leading-none">
-                    {totalBookingsCount}
+                    <SmoothNumber value={totalBookingsCount} />
                   </div>
                   <div className="text-[13px] font-semibold text-[#475569] pt-1">
                     Total Bookings
@@ -776,32 +805,114 @@ function DashboardContent() {
           </div>
 
           {/* ============================================================ */}
-          {/* 4.5. 3D LIVE EXPERIENCE SPHERE & TELEMETRY                    */}
+          {/* 4.5. 3D LIVE COMMAND CENTER TELEMETRY & REACH                 */}
           {/* ============================================================ */}
-          <div className="bg-white p-5 rounded-2xl border border-[#E2E8F0] shadow-2xs space-y-3">
-            <div className="flex items-center justify-between">
+          <div className="bg-white p-5 rounded-2xl border border-[#E2E8F0] shadow-2xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <Globe className="w-4 h-4 text-[#059669]" />
                 <h3 className="text-[15px] font-bold text-[#0F172A] tracking-tight">
-                  Interactive 3D Experience &amp; Reach Radar
+                  3D Provider Command Center
                 </h3>
                 <span className="w-2 h-2 rounded-full bg-[#059669] animate-pulse" />
               </div>
-              <span className="text-[11px] font-mono text-[#059669] bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
-                LIVE TELEMETRY
-              </span>
+
+              {/* 3D Mode Selector Tabs */}
+              <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-200 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setDashboard3DView("reach")}
+                  className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                    dashboard3DView === "reach"
+                      ? "bg-[#059669] text-white shadow-xs"
+                      : "text-slate-600 hover:text-[#0F172A]"
+                  }`}
+                >
+                  Reach Radar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDashboard3DView("metrics")}
+                  className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                    dashboard3DView === "metrics"
+                      ? "bg-[#059669] text-white shadow-xs"
+                      : "text-slate-600 hover:text-[#0F172A]"
+                  }`}
+                >
+                  Financial Activity
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDashboard3DView("timeline")}
+                  className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                    dashboard3DView === "timeline"
+                      ? "bg-[#059669] text-white shadow-xs"
+                      : "text-slate-600 hover:text-[#0F172A]"
+                  }`}
+                >
+                  Guest Schedule
+                </button>
+              </div>
             </div>
-            <Dashboard3DGlobe
-              experiences={displayExperiences.map((e) => ({
-                id: e.id,
-                name: e.title,
-                city: e.city || "Mumbai",
-                price: e.price,
-                rating: e.rating,
-              }))}
-              totalGuests={totalBookingsCount}
-              activeCount={activeListingsCount}
-            />
+
+            {/* Active 3D Visualization */}
+            {dashboard3DView === "reach" ? (
+              <Dashboard3DGlobe
+                experiences={displayExperiences.map((e) => ({
+                  id: e.id,
+                  name: e.title,
+                  city: e.city || "Mumbai",
+                  price: e.price,
+                  rating: e.rating,
+                }))}
+                totalGuests={totalBookingsCount}
+                activeCount={activeListingsCount}
+              />
+            ) : dashboard3DView === "metrics" ? (
+              <EarningsBars3D
+                metrics={[
+                  {
+                    label: "Earnings (₹k)",
+                    value: Math.max(10, Math.round(totalEarningsNum / 1000) || 12),
+                    displayValue: `₹${(totalEarningsNum / 1000).toFixed(1)}k`,
+                    color: "#059669",
+                  },
+                  {
+                    label: "Active Listings",
+                    value: Math.max(5, activeListingsCount * 10),
+                    displayValue: `${activeListingsCount}`,
+                    color: "#2563EB",
+                  },
+                  {
+                    label: "Bookings",
+                    value: Math.max(5, totalBookingsCount * 8),
+                    displayValue: `${totalBookingsCount}`,
+                    color: "#7C3AED",
+                  },
+                  {
+                    label: "Rating (x10)",
+                    value: averageRating ? Math.round(parseFloat(averageRating) * 10) : 48,
+                    displayValue: averageRating ? `${averageRating} ★` : "4.9 ★",
+                    color: "#F59E0B",
+                  },
+                ]}
+              />
+            ) : (
+              <BookingTimeline3D
+                bookings={
+                  todaysBookings.length > 0
+                    ? todaysBookings.map((b) => ({
+                        id: b.id,
+                        time: b.booking_time || "10:00 AM",
+                        title: b.experience_name || "Local Experience",
+                        guestName: b.guest_name || "Traveler",
+                        status: (b.status === "Confirmed" || b.status === "Checked-in" ? "Confirmed" : "Pending") as any,
+                        pax: b.slots || 2,
+                      }))
+                    : undefined
+                }
+              />
+            )}
           </div>
 
           {/* ============================================================ */}
