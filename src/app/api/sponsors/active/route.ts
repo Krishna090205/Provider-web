@@ -39,11 +39,11 @@ export async function GET(request: Request) {
                 .eq("experience_id", camp.listing_id)
                 .maybeSingle();
 
-              if (!expData) {
+              if (!expData && (camp.listing_name || camp.listing_id)) {
                 const { data: fallbackData } = await supabase
                   .from("experience")
                   .select("*")
-                  .eq("id", camp.listing_id)
+                  .eq("experience_name", camp.listing_name || camp.listing_id)
                   .maybeSingle();
                 expData = fallbackData;
               }

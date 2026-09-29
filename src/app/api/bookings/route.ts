@@ -30,50 +30,17 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, data: [] });
     }
 
+    if (providerId === "auth_user_session" || providerId === "host_default_guest") {
+      return NextResponse.json({ success: true, data: [] });
+    }
+
     const todayStr = new Date().toISOString().split("T")[0];
     const targetDate = dateFilter === "today" ? todayStr : dateFilter;
 
     const seenIds = new Set<string>();
     const combined: Booking[] = [];
 
-    // 1. Fetch from Supabase bookings table
-    try {
-      const filters: string[] = [];
-      if (providerId) {
-        filters.push(`provider_id.eq.${providerId}`);
-      }
-      if (providerEmail && providerEmail !== providerId) {
-        filters.push(`provider_id.eq.${providerEmail}`);
-      }
-
-      if (filters.length > 0) {
-        let query = supabase.from("bookings").select("*").or(filters.join(","));
-
-        if (targetDate) {
-          query = query.eq("booking_date", targetDate);
-        }
-        if (statusFilter && statusFilter !== "All") {
-          query = query.eq("status", statusFilter);
-        }
-
-        const { data: dbData, error } = await query;
-        if (!error && Array.isArray(dbData)) {
-          for (const item of dbData) {
-            if (!seenIds.has(item.id)) {
-              seenIds.add(item.id);
-              combined.push({
-                ...item,
-                guest_phone: maskPhoneForPrivacy(item.guest_phone, item.status),
-              });
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.warn("Supabase bookings query notice:", err);
-    }
-
-    // 2. Fetch from server in-memory provider registry
+    // Fetch from server in-memory provider registry (partitioned by real provider ID)
     const localForId = providerId ? serverBookingsRegistry.get(providerId) || [] : [];
     const localForEmail = providerEmail && providerEmail !== providerId ? serverBookingsRegistry.get(providerEmail) || [] : [];
     const localMerged = [...localForId, ...localForEmail];
@@ -101,13 +68,15 @@ export async function GET(request: Request) {
     }
 
     // Sort by booking_time ascending
-    combined.sort((a, b) => a.booking_time.localeCompare(b.booking_time));
+    combined.sort((a, b) => (a.booking_time || "").localeCompare(b.booking_time || ""));
 
     return NextResponse.json({ success: true, data: combined });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message, data: [] }, { status: 500 });
   }
 }
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(request: Request) {
   try {
@@ -117,14 +86,14 @@ export async function POST(request: Request) {
     const providerEmail = (body.provider_email || "").trim().toLowerCase();
     const todayStr = new Date().toISOString().split("T")[0];
 
-    // If traveler_id is provided, attempt to fetch real profile from Supabase
+    // If traveler_id is a valid UUID, attempt to fetch real profile from Supabase
     let realName = body.guest_name || "Traveler Guest";
     let realAvatar = body.guest_avatar || "";
-    if (body.traveler_id) {
+    if (body.traveler_id && UUID_REGEX.test(body.traveler_id)) {
       try {
         const { data: userProfile } = await supabase
           .from("profiles")
-          .select("*")
+          .select("id, full_name, avatar_url")
           .eq("id", body.traveler_id)
           .maybeSingle();
 

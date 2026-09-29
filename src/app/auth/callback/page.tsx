@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
-import { buildProfileFromAuthUser } from "@/lib/authSession";
+import { buildProfileFromAuthUser, syncAuthenticatedUserProfile } from "@/lib/authSession";
 
 export default function AuthCallbackPage() {
   const [statusMsg, setStatusMsg] = useState("Verifying authorization credentials...");
@@ -17,24 +17,15 @@ export default function AuthCallbackPage() {
     setStatusMsg("Setting up your provider profile...");
 
     if (user) {
-      const profile = buildProfileFromAuthUser(user);
-      try {
-        localStorage.setItem("locallens_provider_session", JSON.stringify(profile));
-      } catch (e) {}
-
-      // Background DB sync with profiles table
       try {
         await Promise.race([
-          supabase.from("profiles").upsert({
-            id: user.id,
-            full_name: profile.fullName || user.user_metadata?.full_name || user.user_metadata?.name || "Local Provider",
-            avatar_url: profile.avatar || user.user_metadata?.avatar_url || user.user_metadata?.picture || "",
-            updated_at: new Date().toISOString(),
-          }),
-          new Promise((resolve) => setTimeout(resolve, 800)),
+          syncAuthenticatedUserProfile(user),
+          new Promise((resolve) => setTimeout(resolve, 1500)),
         ]);
-      } catch (e) {
-        console.warn("[OAuth] Profile table sync note:", e);
+      } catch (err: any) {
+        console.warn("[OAuth Callback] Profile sync notice:", {
+          message: err?.message,
+        });
       }
     }
 
@@ -49,102 +40,62 @@ export default function AuthCallbackPage() {
       try {
         if (typeof window === "undefined") return;
 
-        console.log("[OAuth Callback] Full URL:", window.location.href);
-
         const urlParams = new URLSearchParams(window.location.search);
         const code = urlParams.get("code");
         const urlError = urlParams.get("error_description") || urlParams.get("error");
 
-        // Also check hash fragments in case of implicit redirect
-        const hashParams = new URLSearchParams(window.location.hash.substring(1));
-        const hashAccessToken = hashParams.get("access_token");
-        const hashRefreshToken = hashParams.get("refresh_token");
-        const hashError = hashParams.get("error_description") || hashParams.get("error");
-
-        const combinedError = urlError || hashError;
-        if (combinedError) {
-          console.error("[OAuth Callback] Received error from auth provider:", combinedError);
-          setErrorMsg(decodeURIComponent(combinedError));
+        if (urlError) {
+          setErrorMsg(decodeURIComponent(urlError));
           return;
         }
 
-        // 1. Check existing active session immediately
+        // 1. Check if active session is already established
         const { data: existingSession } = await supabase.auth.getSession();
         if (existingSession?.session?.user) {
-          console.log("[OAuth Callback] Active session already verified for user:", existingSession.session.user.id);
           await completeAndNavigate(existingSession.session.user);
           return;
         }
 
-        // 2. Register auth state change listener FIRST so no events are missed
+        // 2. Listen for auth state change
         const {
           data: { subscription },
         } = supabase.auth.onAuthStateChange(async (event, session) => {
-          console.log("[OAuth Callback] Auth state change event:", event);
           if ((event === "SIGNED_IN" || event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") && session?.user) {
             subscription.unsubscribe();
             await completeAndNavigate(session.user);
           }
         });
 
-        // 3. If explicit hash tokens exist (implicit flow)
-        if (hashAccessToken) {
-          console.log("[OAuth Callback] Hash access_token found, setting session...");
-          setStatusMsg("Establishing authenticated session...");
-          const { data, error } = await supabase.auth.setSession({
-            access_token: hashAccessToken,
-            refresh_token: hashRefreshToken || "",
-          });
-
-          if (!error && data?.session?.user) {
-            await completeAndNavigate(data.session.user);
-            return;
-          }
-        }
-
-        // 4. If authorization code exists (PKCE flow)
+        // 3. Exchange authorization code for Supabase session (PKCE)
         if (code) {
-          console.log("[OAuth Callback] Exchanging authorization code for session...");
           setStatusMsg("Exchanging code for session...");
-          
           try {
             const { data, error } = await supabase.auth.exchangeCodeForSession(code);
             if (!error && data?.session?.user) {
-              console.log("[OAuth Callback] Code exchange successful. User ID:", data.session.user.id);
               await completeAndNavigate(data.session.user);
               return;
             }
-            if (error) {
-              console.warn("[OAuth Callback] exchangeCodeForSession returned notice:", error.message);
-            }
-          } catch (ex) {
-            console.warn("[OAuth Callback] exchangeCodeForSession caught exception:", ex);
+          } catch {
+            // Handled below via polling
           }
 
           // In Supabase client v2, detectSessionInUrl may auto-exchange the code in parallel.
-          // Poll getSession() / getUser() for up to 3 seconds before reporting failure.
+          // Poll getSession() for up to 3 seconds before reporting failure.
           for (let attempt = 1; attempt <= 6; attempt++) {
             await new Promise((resolve) => setTimeout(resolve, 500));
             if (handledRef.current) return;
             const { data: polledSession } = await supabase.auth.getSession();
             if (polledSession?.session?.user) {
-              console.log(`[OAuth Callback] Session resolved on poll attempt ${attempt}:`, polledSession.session.user.id);
               await completeAndNavigate(polledSession.session.user);
-              return;
-            }
-            const { data: polledUser } = await supabase.auth.getUser();
-            if (polledUser?.user) {
-              console.log(`[OAuth Callback] User resolved on poll attempt ${attempt}:`, polledUser.user.id);
-              await completeAndNavigate(polledUser.user);
               return;
             }
           }
 
-          setErrorMsg("Could not verify Google authorization code. Please return to login and try again.");
+          setErrorMsg("Could not verify authorization code. Please return to login and try again.");
           return;
         }
 
-        // 5. Final fallback check
+        // 4. Fallback check for session
         setTimeout(async () => {
           if (handledRef.current) return;
           const { data: finalCheck } = await supabase.auth.getUser();
@@ -158,10 +109,8 @@ export default function AuthCallbackPage() {
               setErrorMsg("Authentication did not complete in time. Please try logging in again.");
             }
           }
-        }, 4000);
-
+        }, 3000);
       } catch (err: any) {
-        console.error("[OAuth Callback] Unexpected exception:", err);
         setErrorMsg(err.message || "An unexpected error occurred during login.");
       }
     }

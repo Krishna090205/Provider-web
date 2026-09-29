@@ -129,76 +129,178 @@ export function buildProfileFromAuthUser(user: any): ProviderProfile {
   };
 }
 
+export function isValidUUID(str?: string | null): boolean {
+  if (!str) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
+
+// Track in-flight syncs by user ID to avoid duplicate/concurrent profile creation
+const activeSyncPromises = new Map<string, Promise<ProviderProfile>>();
+
+/**
+ * Ensures an authenticated user's profile is synchronized in Supabase public.profiles table
+ * - Validates active authenticated session exists before DB writes
+ * - Uses authenticated user UUID (auth.uid())
+ * - Checks existing row first; updates if found, upserts only if missing
+ * - Restricts DB columns to exact schema: id, full_name, avatar_url, updated_at
+ * - Deduplicates concurrent calls during OAuth callback, refresh, or dashboard init
+ * - Safely logs code, message, details, hint on error without leaking tokens
+ */
+export async function syncAuthenticatedUserProfile(
+  user: any,
+  fallbackName?: string,
+  fallbackAvatar?: string
+): Promise<ProviderProfile> {
+  const profile = buildProfileFromAuthUser(user);
+  if (fallbackName && (!profile.fullName || profile.fullName === "Local Provider")) {
+    profile.fullName = fallbackName;
+    profile.name = fallbackName;
+  }
+  if (fallbackAvatar && !profile.avatar) {
+    profile.avatar = fallbackAvatar;
+  }
+
+  // 1. Immediately persist to localStorage for 0ms synchronous retrieval
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem("locallens_provider_session", JSON.stringify(profile));
+    } catch {}
+  }
+
+  // Ensure user object has valid UUID
+  const rawId = user?.id || profile.id;
+  if (!rawId || !isValidUUID(rawId)) {
+    return profile;
+  }
+
+  const userId = rawId;
+
+  // Deduplicate concurrent sync calls for the exact same user ID
+  if (activeSyncPromises.has(userId)) {
+    return activeSyncPromises.get(userId)!;
+  }
+
+  const syncPromise = (async (): Promise<ProviderProfile> => {
+    try {
+      // 2. Verify active Supabase session is available
+      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+      if (sessionErr) {
+        console.warn("[LocalLens Auth] Session verification notice:", {
+          code: sessionErr.code,
+          message: sessionErr.message,
+        });
+      }
+
+      const session = sessionData?.session;
+      const isAuthenticated = Boolean(session?.user?.id && session.user.id === userId);
+
+      // Only attempt database writes if the authenticated session matches the user ID
+      // This guarantees RLS WITH CHECK (auth.uid() = id) will evaluate to TRUE
+      if (isAuthenticated) {
+        // 3. Inspect existing profile row using authenticated user's UUID
+        const { data: dbProfile, error: fetchErr } = await supabase
+          .from("profiles")
+          .select("id, full_name, avatar_url, updated_at")
+          .eq("id", userId)
+          .maybeSingle();
+
+        if (fetchErr) {
+          console.warn("[LocalLens Auth] Profile check notice:", {
+            code: fetchErr.code,
+            message: fetchErr.message,
+            details: fetchErr.details,
+            hint: fetchErr.hint,
+          });
+        }
+
+        const cleanName =
+          dbProfile?.full_name ||
+          profile.fullName ||
+          profile.name ||
+          user.user_metadata?.full_name ||
+          user.user_metadata?.name ||
+          "Local Provider";
+
+        const cleanAvatar =
+          dbProfile?.avatar_url ||
+          profile.avatar ||
+          user.user_metadata?.avatar_url ||
+          user.user_metadata?.picture ||
+          "";
+
+        // 4. Update existing profile OR upsert if row does not exist
+        if (dbProfile) {
+          const { error: updateErr } = await supabase
+            .from("profiles")
+            .update({
+              full_name: cleanName,
+              avatar_url: cleanAvatar,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", userId);
+
+          if (updateErr) {
+            console.warn("[LocalLens Auth] Profile update notice:", {
+              code: updateErr.code,
+              message: updateErr.message,
+              details: updateErr.details,
+              hint: updateErr.hint,
+            });
+          }
+        } else {
+          // Row does not exist yet: upsert with ONLY the 4 valid schema columns
+          const { error: upsertErr } = await supabase
+            .from("profiles")
+            .upsert(
+              {
+                id: userId,
+                full_name: cleanName,
+                avatar_url: cleanAvatar,
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: "id" }
+            );
+
+          if (upsertErr) {
+            console.warn("[LocalLens Auth] Profile upsert notice:", {
+              code: upsertErr.code,
+              message: upsertErr.message,
+              details: upsertErr.details,
+              hint: upsertErr.hint,
+            });
+          }
+        }
+
+        // Keep local cache updated with resolved values
+        profile.fullName = cleanName;
+        profile.name = cleanName;
+        profile.avatar = cleanAvatar;
+
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem("locallens_provider_session", JSON.stringify(profile));
+          } catch {}
+        }
+      }
+    } catch (err: any) {
+      console.warn("[LocalLens Auth] Profile sync catch notice:", {
+        message: err?.message,
+      });
+    } finally {
+      activeSyncPromises.delete(userId);
+    }
+    return profile;
+  })();
+
+  activeSyncPromises.set(userId, syncPromise);
+  return syncPromise;
+}
+
 /**
  * Gets or creates provider profile with non-blocking DB sync for instant response
  */
 export async function getOrCreateProviderProfile(user: any): Promise<ProviderProfile> {
-  const profile = buildProfileFromAuthUser(user);
-
-  // 1. Immediately persist to localStorage for 0ms retrieval
-  if (typeof window !== "undefined") {
-    localStorage.setItem("locallens_provider_session", JSON.stringify(profile));
-  }
-
-  // 2. Non-blocking background sync with Supabase profiles table (fire and forget)
-  try {
-    const syncDb = async () => {
-      const { data: dbProfile } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (dbProfile) {
-        profile.fullName = dbProfile.full_name || profile.fullName;
-        profile.name = dbProfile.full_name || profile.name;
-        profile.avatar = dbProfile.avatar_url || profile.avatar;
-        if (dbProfile.verified !== undefined || dbProfile.aadhaar_verified !== undefined) {
-          profile.aadhaarVerified = Boolean(dbProfile.aadhaar_verified);
-          profile.verified = Boolean(dbProfile.verified && dbProfile.aadhaar_verified);
-          profile.aadhaarNumber = dbProfile.aadhaar_number || profile.aadhaarNumber;
-          profile.aadhaarName = dbProfile.aadhaar_name || profile.aadhaarName;
-          profile.aadhaarDob = dbProfile.aadhaar_dob || profile.aadhaarDob;
-          profile.aadhaarGender = dbProfile.aadhaar_gender || profile.aadhaarGender;
-          profile.aadhaarAddress = dbProfile.aadhaar_address || profile.aadhaarAddress;
-        }
-        if (dbProfile.language) {
-          profile.language = dbProfile.language;
-          if (typeof window !== "undefined") {
-            localStorage.setItem("locallens_preferred_language", dbProfile.language);
-          }
-        }
-        if (typeof window !== "undefined") {
-          localStorage.setItem("locallens_provider_session", JSON.stringify(profile));
-        }
-      } else {
-        await supabase.from("profiles").upsert({
-          id: user.id,
-          full_name: profile.fullName,
-          avatar_url: profile.avatar,
-          language: profile.language || "en",
-          verified: profile.verified,
-          aadhaar_verified: profile.aadhaarVerified,
-          aadhaar_number: profile.aadhaarNumber,
-          aadhaar_name: profile.aadhaarName,
-          aadhaar_dob: profile.aadhaarDob,
-          aadhaar_gender: profile.aadhaarGender,
-          aadhaar_address: profile.aadhaarAddress,
-          updated_at: new Date().toISOString(),
-        });
-      }
-    };
-
-    // Use a fast 800ms race so UI is never blocked by database latency
-    await Promise.race([
-      syncDb(),
-      new Promise((res) => setTimeout(res, 800)),
-    ]);
-  } catch (err) {
-    // Non-fatal, profile is already safely cached in session
-  }
-
-  return profile;
+  return syncAuthenticatedUserProfile(user);
 }
 
 /**
@@ -234,23 +336,18 @@ export async function completeAadhaarVerification(details: {
     );
   }
 
-  // Non-blocking sync to Supabase
+  // Non-blocking sync to Supabase auth metadata and profiles table
   try {
     const { data: session } = await supabase.auth.getSession();
-    const userId = session?.session?.user?.id || updated.id;
-    if (userId) {
-      await supabase.from("profiles").upsert({
-        id: userId,
-        full_name: updated.fullName || updated.name,
-        verified: true,
-        aadhaar_verified: true,
-        aadhaar_number: details.aadhaarNumber,
-        aadhaar_name: details.aadhaarName,
-        aadhaar_dob: details.aadhaarDob,
-        aadhaar_gender: details.aadhaarGender,
-        aadhaar_address: details.aadhaarAddress || "Verified Resident of India",
-        updated_at: new Date().toISOString(),
-      });
+    const userId = session?.session?.user?.id || (isValidUUID(updated.id) ? updated.id : null);
+    if (userId && isValidUUID(userId)) {
+      await supabase
+        .from("profiles")
+        .update({
+          full_name: updated.fullName || updated.name,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", userId);
       await supabase.auth.updateUser({
         data: {
           verified: true,

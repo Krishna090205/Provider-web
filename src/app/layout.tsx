@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { LanguageProvider } from "@/lib/i18n";
+import { LanguageProvider } from "@/components/providers/LanguageProviderWrapper";
 
 export const metadata: Metadata = {
   title: "LocalLens - Provider Portal",

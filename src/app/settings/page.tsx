@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { LanguageSelector } from "@/components/settings/LanguageSelector";
-import { getProviderProfile, saveProviderProfile, ProviderProfile } from "@/lib/authSession";
+import { getProviderProfile, saveProviderProfile, ProviderProfile, isValidUUID, syncAuthenticatedUserProfile } from "@/lib/authSession";
 import { supabase } from "@/lib/supabaseClient";
 import {
   performAadhaarOcr,
@@ -184,15 +184,9 @@ export default function SettingsPage() {
     // Sync to Supabase profiles table
     try {
       const { data } = await supabase.auth.getSession();
-      const userId = data?.session?.user?.id;
-      if (userId) {
-        await supabase
-          .from("profiles")
-          .update({
-            full_name: extractedAadhaar.fullName,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", userId);
+      const user = data?.session?.user;
+      if (user?.id && isValidUUID(user.id)) {
+        await syncAuthenticatedUserProfile(user, extractedAadhaar.fullName);
       }
     } catch {}
 
@@ -232,15 +226,9 @@ export default function SettingsPage() {
 
       // Background DB sync if authenticated
       const { data } = await supabase.auth.getSession();
-      const userId = data?.session?.user?.id;
-      if (userId) {
-        await supabase
-          .from("profiles")
-          .update({
-            full_name: fullName,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", userId);
+      const user = data?.session?.user;
+      if (user?.id && isValidUUID(user.id)) {
+        await syncAuthenticatedUserProfile(user, fullName);
       }
 
       setStatusMessage({

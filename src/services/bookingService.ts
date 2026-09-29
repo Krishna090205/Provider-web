@@ -28,18 +28,22 @@ export function saveLocalProviderBookings(providerId: string, bookings: Booking[
  * Fetches real database-driven bookings for the authenticated provider only
  */
 export async function fetchProviderBookings(
-  providerId: string,
-  providerEmail?: string,
+  providerId?: string | null,
+  providerEmail?: string | null,
   dateFilter?: string,
   statusFilter?: string
 ): Promise<Booking[]> {
+  if (!providerId || providerId === "auth_user_session" || providerId === "host_default_guest") {
+    return [];
+  }
+
   const cleanId = providerId.trim().toLowerCase();
-  const cleanEmail = (providerEmail || "").trim().toLowerCase();
+  const cleanEmail = (providerEmail && providerEmail !== "provider@locallens.in") ? providerEmail.trim().toLowerCase() : "";
 
   const seenIds = new Set<string>();
   const combined: Booking[] = [];
 
-  // 1. Fetch from Next.js server API
+  // 1. Fetch from Next.js server API (partitioned by real provider ID)
   try {
     const params = new URLSearchParams({
       provider_id: cleanId,
@@ -49,12 +53,14 @@ export async function fetchProviderBookings(
     });
 
     const res = await fetch(`/api/bookings?${params.toString()}`);
-    const json = await res.json();
-    if (json.success && Array.isArray(json.data)) {
-      for (const b of json.data) {
-        if (!seenIds.has(b.id)) {
-          seenIds.add(b.id);
-          combined.push(b);
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        for (const b of json.data) {
+          if (!seenIds.has(b.id)) {
+            seenIds.add(b.id);
+            combined.push(b);
+          }
         }
       }
     }
@@ -62,40 +68,7 @@ export async function fetchProviderBookings(
     console.warn("API booking fetch notice:", err);
   }
 
-  // 2. Fetch directly from Supabase bookings table matching this provider
-  try {
-    const filters: string[] = [`provider_id.eq.${cleanId}`];
-    if (cleanEmail && cleanEmail !== cleanId) {
-      filters.push(`provider_id.eq.${cleanEmail}`);
-    }
-
-    let query = supabase.from("bookings").select("*").or(filters.join(","));
-
-    if (dateFilter && dateFilter === "today") {
-      const todayStr = new Date().toISOString().split("T")[0];
-      query = query.eq("booking_date", todayStr);
-    } else if (dateFilter && dateFilter !== "all") {
-      query = query.eq("booking_date", dateFilter);
-    }
-
-    if (statusFilter && statusFilter !== "All") {
-      query = query.eq("status", statusFilter);
-    }
-
-    const { data: dbData, error } = await query;
-    if (!error && Array.isArray(dbData)) {
-      for (const b of dbData) {
-        if (!seenIds.has(b.id)) {
-          seenIds.add(b.id);
-          combined.push(b);
-        }
-      }
-    }
-  } catch (dbErr) {
-    console.warn("Supabase booking direct query notice:", dbErr);
-  }
-
-  // 3. Fallback to provider-isolated local partition
+  // 2. Fallback to provider-isolated local partition
   const localItems = getLocalProviderBookings(cleanId);
   for (const b of localItems) {
     if (!seenIds.has(b.id)) {
@@ -105,46 +78,26 @@ export async function fetchProviderBookings(
   }
 
   // Sort by booking_time ascending
-  combined.sort((a, b) => a.booking_time.localeCompare(b.booking_time));
+  combined.sort((a, b) => (a.booking_time || "").localeCompare(b.booking_time || ""));
 
   return combined;
 }
 
 /**
- * Sets up genuine Supabase Realtime channel subscription for live updates
+ * Sets up live updates for provider bookings
  */
 export function subscribeToBookingsRealtime(
   providerId: string,
   onBookingChange: (payload: any) => void,
   onConnectionStatusChange?: (isConnected: boolean) => void
 ) {
-  if (!providerId) return () => {};
+  if (!providerId || providerId === "auth_user_session" || providerId === "host_default_guest") {
+    return () => {};
+  }
 
   const cleanId = providerId.trim().toLowerCase();
-  const channelName = `provider-bookings-${cleanId}-${Date.now()}`;
 
-  const channel = supabase
-    .channel(channelName)
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "bookings",
-        filter: `provider_id=eq.${cleanId}`,
-      },
-      (payload) => {
-        onBookingChange(payload);
-      }
-    )
-    .subscribe((status) => {
-      const isSubscribed = status === "SUBSCRIBED";
-      if (onConnectionStatusChange) {
-        onConnectionStatusChange(isSubscribed);
-      }
-    });
-
-  // Cross-tab reactive listener
+  // Cross-tab and same-window reactive listener
   const handleCustomEvent = (e: any) => {
     if (e.detail?.providerId === cleanId) {
       onBookingChange({ eventType: "LOCAL_UPDATE", detail: e.detail });
@@ -153,10 +106,12 @@ export function subscribeToBookingsRealtime(
 
   if (typeof window !== "undefined") {
     window.addEventListener("locallens_booking_update", handleCustomEvent);
+    if (onConnectionStatusChange) {
+      onConnectionStatusChange(true);
+    }
   }
 
   return () => {
-    supabase.removeChannel(channel);
     if (typeof window !== "undefined") {
       window.removeEventListener("locallens_booking_update", handleCustomEvent);
     }

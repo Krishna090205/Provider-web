@@ -95,11 +95,16 @@ function DashboardContent() {
   const { t } = useI18n();
 
   // Core interactive states
+  const [mounted, setMounted] = useState(false);
   const [emergencyPaused, setEmergencyPaused] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [activeMenu, setActiveMenu] = useState("dashboard");
   const [analyticsRange, setAnalyticsRange] = useState<"7d" | "30d" | "90d" | "1y">("7d");
   const [searchQuery, setSearchQuery] = useState("");
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Auth context
   const { user, profile: authProfile, loading: authLoading, signOut } = useAuth();
@@ -157,25 +162,23 @@ function DashboardContent() {
       .join("")
       .slice(0, 2)
       .toUpperCase() || "LP";
-  const userId = user?.id || profile?.id || "auth_user_session";
+  const userId =
+    user?.id ||
+    (profile?.id && profile.id !== "auth_user_session" && profile.id !== "host_default_guest"
+      ? profile.id
+      : "");
   const authProviderName =
     user?.app_metadata?.provider || profile?.authProvider || "google";
 
   // Aadhaar KYC verification status
-  const [isAadhaarVerified, setIsAadhaarVerified] = useState<boolean>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("locallens_aadhaar_verified") === "true";
-    }
-    return true; // Default verified for seamless UI
-  });
+  // IMPORTANT: must default to `false` (not localStorage) so server and client
+  // render the same initial HTML — avoiding React hydration mismatch.
+  const [isAadhaarVerified, setIsAadhaarVerified] = useState<boolean>(false);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("locallens_aadhaar_verified");
-      if (stored !== null) {
-        setIsAadhaarVerified(stored === "true");
-      }
-    }
+    // Read actual value after mount (client-only)
+    const stored = localStorage.getItem("locallens_aadhaar_verified");
+    setIsAadhaarVerified(stored === "true");
   }, []);
 
   // 3D Telemetry View Mode
@@ -295,7 +298,11 @@ function DashboardContent() {
   const [isRealtimeActive, setIsRealtimeActive] = useState<boolean>(false);
 
   const loadProviderBookings = React.useCallback(async () => {
-    if (!userId) return;
+    if (!userId) {
+      setRealBookings([]);
+      setIsLoadingBookings(false);
+      return;
+    }
     setIsLoadingBookings(true);
     const data = await fetchProviderBookings(userId, userEmail);
     setRealBookings(data || []);
@@ -386,7 +393,7 @@ function DashboardContent() {
 
   const setupPercentage = Math.round((completedSetupSteps / 5) * 100);
 
-  if (authLoading && !profile) {
+  if (!mounted || (authLoading && !profile)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC]">
         <div className="text-center space-y-3">
@@ -855,15 +862,18 @@ function DashboardContent() {
               </div>
             </div>
 
-            {/* Active 3D Visualization */}
+            {/* Active Visualization — India Map */}
             {dashboard3DView === "reach" ? (
               <Dashboard3DGlobe
                 experiences={displayExperiences.map((e) => ({
                   id: e.id,
                   name: e.title,
+                  category: e.category,
                   city: e.city || "Mumbai",
                   price: e.price,
                   rating: e.rating,
+                  lat: (e as any).lat || (e as any).latitude || undefined,
+                  lng: (e as any).lng || (e as any).longitude || undefined,
                 }))}
                 totalGuests={totalBookingsCount}
                 activeCount={activeListingsCount}
@@ -1445,7 +1455,7 @@ export default function ProviderDashboardPage() {
         <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC]">
           <div className="text-center space-y-3">
             <div className="w-10 h-10 border-3 border-[#059669] border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="text-xs font-semibold text-[#64748B]">Loading LocalLens Portal...</p>
+            <p className="text-xs font-semibold text-[#64748B]">Loading Provider Portal...</p>
           </div>
         </div>
       }

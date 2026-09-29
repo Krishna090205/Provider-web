@@ -422,11 +422,6 @@ function NewExperienceWizardPageContent() {
     };
 
     try {
-      if (editId) {
-        await supabase.from("experience").update(dbPayload).eq("experience_id", editId);
-      } else {
-        await supabase.from("experience").insert(dbPayload);
-      }
       await fetch("/api/experiences", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -960,13 +955,21 @@ function NewExperienceWizardPageContent() {
                   />
                 </div>
 
-                {/* 3D Pin & Coordinate Telemetry Widget */}
+                {/* 3D Pin & Live Location Widget */}
                 <ExperienceMap3DFeedback
                   lat={lat}
                   lng={lng}
                   city={city}
                   district={district}
                   venueName={meetingPoint}
+                  onLocationChange={(loc) => {
+                    setLat(loc.lat);
+                    setLng(loc.lng);
+                    setMeetingPoint(loc.venueName);
+                    setCity(loc.city);
+                    setDistrict(loc.district);
+                    if (typeof setStateName === "function") setStateName(loc.state);
+                  }}
                 />
 
                 {/* Collapsible Advanced Coordinates */}

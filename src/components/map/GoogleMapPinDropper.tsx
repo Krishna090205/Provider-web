@@ -53,15 +53,23 @@ export const GoogleMapPinDropper: React.FC<GoogleMapPinDropperProps> = ({
   const mapInstanceRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
 
-  const [activeProvider, setActiveProvider] = useState<"google" | "osm">("osm");
+  const [activeProvider, setActiveProvider] = useState<"google" | "osm">("google");
   const [googleStatus, setGoogleStatus] = useState<"idle" | "loading" | "ready" | "failed">("idle");
   const [authErrorReason, setAuthErrorReason] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
   const [locatingError, setLocatingError] = useState<string | null>(null);
 
-  const apiKey =
-    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ||
-    "AIzaSyCjkIl2fmZxKKLCn3wjMSnkn3NFroWBRZQ";
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "AIzaSyA7pXqfj071eC94R8h_h8yGuvhYGEdNcpg";
+
+  const onPinSelectedRef = useRef(onPinSelected);
+  useEffect(() => {
+    onPinSelectedRef.current = onPinSelected;
+  }, [onPinSelected]);
+
+  const venueNameRef = useRef(venueName);
+  useEffect(() => {
+    venueNameRef.current = venueName;
+  }, [venueName]);
 
   // Gracefully handle Google Maps Auth Failure without breaking the page or triggering dev overlay
   useEffect(() => {
@@ -95,11 +103,25 @@ export const GoogleMapPinDropper: React.FC<GoogleMapPinDropperProps> = ({
 
     try {
       const center = { lat: position.lat, lng: position.lng };
+
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.setCenter(center);
+        if (markerRef.current) {
+          markerRef.current.setPosition(center);
+        }
+        setGoogleStatus("ready");
+        return;
+      }
+
       const mapOptions = {
         center,
         zoom,
         mapTypeId: window.google.maps.MapTypeId.ROADMAP,
-        mapTypeControl: false,
+        mapTypeControl: true,
+        mapTypeControlOptions: {
+          style: window.google.maps.MapTypeControlStyle?.HORIZONTAL_BAR,
+          position: window.google.maps.ControlPosition?.TOP_RIGHT,
+        },
         streetViewControl: false,
         fullscreenControl: true,
         zoomControl: true,
@@ -112,15 +134,16 @@ export const GoogleMapPinDropper: React.FC<GoogleMapPinDropperProps> = ({
       const marker = new window.google.maps.Marker({
         position: center,
         map,
-        title: venueName,
+        title: venueNameRef.current,
         draggable: true,
+        animation: window.google.maps.Animation?.DROP,
       });
       markerRef.current = marker;
 
       marker.addListener("dragend", (e: any) => {
         const lat = Number(e.latLng.lat().toFixed(6));
         const lng = Number(e.latLng.lng().toFixed(6));
-        onPinSelected({ lat, lng });
+        onPinSelectedRef.current({ lat, lng });
       });
 
       map.addListener("click", (e: any) => {
@@ -128,7 +151,7 @@ export const GoogleMapPinDropper: React.FC<GoogleMapPinDropperProps> = ({
         const lng = Number(e.latLng.lng().toFixed(6));
         marker.setPosition(e.latLng);
         map.panTo(e.latLng);
-        onPinSelected({ lat, lng });
+        onPinSelectedRef.current({ lat, lng });
       });
 
       setGoogleStatus("ready");
@@ -137,7 +160,7 @@ export const GoogleMapPinDropper: React.FC<GoogleMapPinDropperProps> = ({
       setGoogleStatus("failed");
       setActiveProvider("osm");
     }
-  }, [position.lat, position.lng, venueName, zoom, onPinSelected, activeProvider]);
+  }, [position.lat, position.lng, zoom, activeProvider]);
 
   // Smoothly pan and reposition marker when position coordinates update (e.g. from place search)
   useEffect(() => {
@@ -148,7 +171,7 @@ export const GoogleMapPinDropper: React.FC<GoogleMapPinDropperProps> = ({
     }
   }, [position.lat, position.lng]);
 
-  // Load Google Maps SDK only if user explicitly selects Google Maps
+  // Load Google Maps SDK
   useEffect(() => {
     if (activeProvider !== "google") return;
 
@@ -159,25 +182,30 @@ export const GoogleMapPinDropper: React.FC<GoogleMapPinDropperProps> = ({
 
     setGoogleStatus("loading");
     const scriptId = "google-maps-script";
-    const existing = document.getElementById(scriptId);
+    const existing = (document.getElementById(scriptId) ||
+      document.querySelector('script[src*="maps.googleapis.com/maps/api/js"]')) as HTMLScriptElement | null;
+
     if (existing) {
-      existing.addEventListener("load", () => initGoogleMap());
+      if (window.google?.maps) {
+        initGoogleMap();
+      } else {
+        existing.addEventListener("load", () => initGoogleMap());
+      }
       return;
     }
 
     const script = document.createElement("script");
     script.id = scriptId;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,marker`;
     script.async = true;
     script.defer = true;
 
     script.onload = () => {
-      // Small delay to check if gm_authFailure triggers
       setTimeout(() => {
         if (googleStatus !== "failed") {
           initGoogleMap();
         }
-      }, 300);
+      }, 150);
     };
 
     script.onerror = () => {
@@ -306,6 +334,23 @@ export const GoogleMapPinDropper: React.FC<GoogleMapPinDropperProps> = ({
                 </button>
               </div>
             )}
+
+            {/* Bottom Coordinates Chip */}
+            <div className="absolute bottom-2.5 left-2.5 z-10 bg-slate-900/85 text-white text-[10.5px] font-mono px-2.5 py-1 rounded-lg backdrop-blur-md border border-white/10 shadow-sm pointer-events-none">
+              {position.lat.toFixed(6)}, {position.lng.toFixed(6)}
+            </div>
+
+            {/* Bottom Right Mode Badge */}
+            <div className="absolute bottom-2.5 right-2.5 z-10 bg-white/95 backdrop-blur-md px-2.5 py-1 rounded-xl shadow-md border border-slate-200/80 flex items-center gap-1.5 pointer-events-none">
+              <span className="w-2 h-2 rounded-full bg-[#0e8a5b] animate-pulse" />
+              <span className="text-[10.5px] font-extrabold text-slate-800 tracking-tight">
+                Google Maps
+              </span>
+              <span className="text-[10px] text-slate-400 font-medium">|</span>
+              <span className="text-[10px] text-[#0e8a5b] font-bold">
+                Drag Pin to Adjust
+              </span>
+            </div>
           </div>
         )}
       </div>

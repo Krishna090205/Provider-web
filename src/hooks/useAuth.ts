@@ -3,33 +3,13 @@
 import { useState, useEffect } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
-import { buildProfileFromAuthUser, ProviderProfile } from "@/lib/authSession";
+import { buildProfileFromAuthUser, ProviderProfile, syncAuthenticatedUserProfile } from "@/lib/authSession";
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<ProviderProfile | null>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("locallens_provider_session");
-        if (saved && saved.trim() && saved !== "undefined" && saved !== "null") {
-          return JSON.parse(saved);
-        }
-      } catch (e) {
-        try { localStorage.removeItem("locallens_provider_session"); } catch (_) {}
-      }
-    }
-    return null;
-  });
-  const [loading, setLoading] = useState<boolean>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("locallens_provider_session");
-        if (saved && saved.trim() && saved !== "undefined" && saved !== "null") return false;
-      } catch (e) {}
-    }
-    return true;
-  });
+  const [profile, setProfile] = useState<ProviderProfile | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
     let isMounted = true;
@@ -52,9 +32,13 @@ export function useAuth() {
         setUser(initialSession.user);
         const p = buildProfileFromAuthUser(initialSession.user);
         setProfile(p);
-        try {
-          localStorage.setItem("locallens_provider_session", JSON.stringify(p));
-        } catch (e) {}
+        syncAuthenticatedUserProfile(initialSession.user)
+          .then((synced) => {
+            if (isMounted && synced) {
+              setProfile(synced);
+            }
+          })
+          .catch(() => {});
       } else {
         try {
           const saved = localStorage.getItem("locallens_provider_session");
@@ -76,9 +60,15 @@ export function useAuth() {
         setUser(currentSession.user);
         const p = buildProfileFromAuthUser(currentSession.user);
         setProfile(p);
-        try {
-          localStorage.setItem("locallens_provider_session", JSON.stringify(p));
-        } catch (e) {}
+        if (event === "SIGNED_IN" || event === "INITIAL_SESSION") {
+          syncAuthenticatedUserProfile(currentSession.user)
+            .then((synced) => {
+              if (isMounted && synced) {
+                setProfile(synced);
+              }
+            })
+            .catch(() => {});
+        }
       } else if (event === "SIGNED_OUT") {
         setUser(null);
         setProfile(null);

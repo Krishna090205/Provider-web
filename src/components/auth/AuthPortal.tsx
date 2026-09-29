@@ -25,9 +25,10 @@ import {
   CheckCircle2,
   X,
   ExternalLink,
+  Sparkles,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
-import { saveProviderProfile } from "@/lib/authSession";
+import { saveProviderProfile, syncAuthenticatedUserProfile } from "@/lib/authSession";
 import { useI18n } from "@/lib/i18n";
 import { LanguageSelector } from "@/components/settings/LanguageSelector";
 
@@ -215,17 +216,22 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = "signup" }
             provider_category: assignedRole,
           },
         },
-      }).then(({ data }) => {
-        if (data?.user) {
-          Promise.resolve(
-            supabase.from("profiles").upsert({
-              id: data.user.id,
-              full_name: cleanName,
-              updated_at: new Date().toISOString(),
-            })
-          ).catch(() => {});
+      }).then(async ({ data, error }) => {
+        if (error) {
+          console.warn("[LocalLens Auth] Supabase signUp notice:", {
+            code: error.code,
+            message: error.message,
+          });
+          return;
         }
-      }).catch(() => {});
+        if (data?.session?.user) {
+          await syncAuthenticatedUserProfile(data.session.user, cleanName);
+        }
+      }).catch((err) => {
+        console.warn("[LocalLens Auth] Supabase signUp catch notice:", {
+          message: err?.message,
+        });
+      });
 
       setSuccessMsg(`Welcome to LocalLens, ${cleanName}! Direct login successful...`);
       setTimeout(() => {
@@ -251,11 +257,13 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = "signup" }
           ? `${window.location.origin}/auth/callback`
           : "http://localhost:3000/auth/callback";
 
-      console.log("[Google OAuth] Initiating signInWithOAuth with redirectTo:", redirectUrl);
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: redirectUrl,
+          queryParams: {
+            prompt: "select_account",
+          },
         },
       });
 
@@ -292,6 +300,33 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = "signup" }
     });
     setSuccessMsg("Signed in with Apple! Redirecting to Provider Portal...");
     setTimeout(() => { window.location.href = "/dashboard"; }, 300);
+  };
+
+  // Instant Verified Host Access (Demo / Offline mode)
+  const handleQuickDemoLogin = () => {
+    setIsLoading(true);
+    setErrorMsg(null);
+    setSuccessMsg("Logging in as LocalLens Verified Host...");
+    saveProviderProfile({
+      id: "host_locallens_demo",
+      name: "Gupta Krishna Kumar",
+      fullName: "Gupta Krishna Kumar",
+      email: "guptakrishnakumar551@gmail.com",
+      phone: "+91 98201 55432",
+      role: selectedRole || "Adventure Host",
+      providerCategory: selectedRole || "Adventure Host",
+      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80",
+      authProvider: "google",
+      verified: true,
+      aadhaarVerified: true,
+      rating: 4.95,
+      totalExperiences: 4,
+      totalGuests: 328,
+      joinedDate: "Verified Partner",
+    });
+    setTimeout(() => {
+      window.location.href = "/dashboard";
+    }, 150);
   };
 
   return (
@@ -758,6 +793,16 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ initialMode = "signup" }
                     <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.7-3.04-7.58-7.7-11.64-13.99-5.99-9.35-10.74-19.81-14.25-31.39-3.51-11.58-5.27-22.33-5.27-32.24 0-14.35 3.73-26.04 11.19-35.08 7.46-9.04 16.59-13.67 27.39-13.89 4.8-.11 10.15 1.25 16.05 4.09 5.9 2.84 9.61 4.37 11.14 4.59 2.11-.44 6.07-2.13 11.89-5.07 5.82-2.94 10.97-4.24 15.45-3.9 11.88.88 21.24 5.37 28.09 13.48-10.46 6.32-15.58 15.14-15.36 26.47.22 8.71 3.51 15.93 9.87 21.66 6.36 5.73 13.96 9.04 22.8 9.92-2.18 6.53-4.79 12.84-7.83 18.94zM119.22 33.15c0-6.75 2.47-13.17 7.41-19.26 4.94-6.09 11.02-10.45 18.24-13.08-.22 1.3-.43 2.6-.65 3.91-.43 3.69-1.42 7.28-2.94 10.78-2.29 5.23-5.55 9.69-9.8 13.39-4.24 3.7-9.36 6.1-15.36 7.2-.21-.98-.42-1.96-.65-2.94-.15-.99-.25-1.99-.25-3.03z" />
                   </svg>
                   <span>Continue with Apple</span>
+                </button>
+
+                {/* Instant Host Access (Local/Offline direct login) */}
+                <button
+                  type="button"
+                  onClick={handleQuickDemoLogin}
+                  className="w-full py-2.5 px-4 rounded-xl border border-emerald-500/30 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Instant Host Access (Demo / Direct Entry)</span>
                 </button>
               </div>
 

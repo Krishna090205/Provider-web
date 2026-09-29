@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import en from "@/locales/en.json";
@@ -115,20 +115,18 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       window.dispatchEvent(new CustomEvent("locallens_language_changed", { detail: newLang }));
     }
 
-    // Save to user profile & Supabase in background
+    // Save to user profile & Supabase in background (non-fatal if table/col missing)
     try {
       saveProviderProfile({ language: newLang });
 
       const { data } = await supabase.auth.getSession();
       const userId = data?.session?.user?.id;
       if (userId) {
-        await supabase
-          .from("profiles")
-          .update({ language: newLang, updated_at: new Date().toISOString() })
-          .eq("id", userId);
+        // Persist language to Supabase auth user_metadata (profiles table does not have a language column)
+        supabase.auth.updateUser({ data: { language: newLang } }).catch(() => {});
       }
-    } catch (err) {
-      console.warn("Language DB sync notice:", err);
+    } catch {
+      // Non-fatal — language already persisted in localStorage
     } finally {
       setIsChanging(false);
     }
